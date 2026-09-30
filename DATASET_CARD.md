@@ -1,134 +1,68 @@
-# Dataset Card: BrowseTrace
+# Dataset card: BrowseTrace
 
-*(Following the [HuggingFace Datasets Card template](https://huggingface.co/docs/hub/datasets-cards) adapted for web-measurement artifacts.)*
+## Identity and status
 
-## Overview
+- **Curator:** Gennaro Francesco Landi
+- **Canonical repository:** https://github.com/landigf/BrowseTrace
+- **Code:** [Apache 2.0](LICENSE)
+- **Released data:** [CC BY 4.0](LICENSE-DATA)
+- **Status:** research artifact. The historical manuscript is not an accepted IMC publication.
+- **Current evidence:** [September 2026 replay and input hashes](reports/public-cache-replay.json).
 
-- **Dataset:** BrowseTrace
-- **Version:** v3 (release manifest `release-v3`, released 2026-04-29)
-- **Curator:** Anonymous Authors (affiliation withheld for double-blind review)
-- **License (data):** [CC BY 4.0](LICENSE-DATA)
-- **License (code):** [Apache 2.0](LICENSE)
-- **Primary reference:** Anonymous Authors (2026). *BrowseTrace: Request-Level Traffic Characterization of Browser-Mediated AI Agents.* In Proceedings of IMC 2026.
-- **Canonical location:** https://anonymous.4open.science/r/BrowseTrace
-- **Supported tasks:** cache-policy evaluation, CDN workload characterization, web-measurement longitudinal study, agent traffic modelling.
+## Public snapshot scope
 
-## Scope
+The repository contains browser collection code, task definitions, scripted release artifacts and two stitched cache-replay CSVs. The raw LLM session JSON bundles are not included in this snapshot.
 
-1,301 browser-mediated agent sessions across 10 task families. Two execution modes:
+| File | Request rows | Distinct nonempty session IDs |
+|---|---:|---:|
+| `data/traces/full_400_sessions.csv` | 82,455 | 400 |
+| `data/traces/llm_full_901.csv` | 357,782 | 100 |
 
-| Mode | Sessions | Regions | Use |
-|---|---|---|---|
-| Scripted-random | 400 | 4 (Zurich + 3 GCP) | Reproducible stress-test baseline, credential-free |
-| LLM-driven | 901 | 4 (same 4 regions) | Real browser-mediated AI-agent traffic |
+These counts were recomputed from the files. The legacy LLM filename is not a verified count of independent collection sessions. Labels can be reused across collections; the distinct-ID count does not reconstruct the missing session inventory. Historical claims of 901 LLM sessions, 1,301 total sessions and per-model amplification require evidence not supplied by these CSVs alone.
 
-Six LLMs across five providers:
+The workload labels are inherited from the release. The September recheck reruns offline simulation, not browser collection or model inference.
 
-| Provider | Model | Sessions | Capability tier |
-|---|---|---|---|
-| OpenAI | GPT-4.1-mini | 350 | Frontier closed-source (cost-optimized) |
-| Google | Gemini 2.5 Flash | 150 | Frontier closed-source (cost-optimized) |
-| Google | Gemini 2.5 Pro | 150 | Frontier closed-source (high-capability) |
-| Anthropic | Claude Haiku 4.5 | 100 | Frontier closed-source (fast/cheap) |
-| DeepSeek | DeepSeek-V3.2 | 90 | Agent-post-trained (reasoning-first) |
-| Alibaba | Qwen 2.5-Coder 7B | 61 | Open-weight, edge-runnable |
+## Intended uses
 
-## Task families
+- Compare object-cache policies on fixed request sequences.
+- Inspect request-level schemas and the collection/release pipeline.
+- Develop replay tooling with known, hashed inputs.
 
-10 task families designed to span navigation regimes: breadth-first, depth-first, multi-site comparison, structured lookup.
+The scripted-random control is a reproducible driver, **not a human traffic baseline**. These traces do not establish deployment latency improvements, production cost savings, or population-level differences between humans and AI agents.
 
-1. API comparison (weather API providers)
-2. Documentation lookup (Python, MDN)
-3. Fact checking (EU regulatory sources)
-4. Job market (Indeed, Jobs.ch, Glassdoor)
-5. Literature review (arXiv, Google Scholar)
-6. News aggregation (tech news sites)
-7. Product comparison (cloud GPU providers)
-8. Real estate (apartment listings)
-9. Regulatory lookup (GDPR reference)
-10. Travel planning (flights, hotels)
+## Task definitions and collection background
 
-See [`collection/tasks.yaml`](collection/tasks.yaml) for full target site lists and parameters.
+[collection/tasks.yaml](collection/tasks.yaml) defines ten task families: API comparison, documentation lookup, fact checking, job market, literature review, news aggregation, product comparison, real estate, regulatory lookup and travel planning. Model configuration and browser orchestration live in [collection/runner.py](collection/runner.py).
 
-## File formats
+The historical collection documentation describes local BrowserUse/macOS and cloud Playwright/Linux substrates. These environments differ; a geographic comparison is not automatically a controlled experiment. The current replay does not independently verify historical collection metadata or task completion.
 
-### Per-task artifacts (`data/release-v3/scraping/<task>/`)
+## Formats
 
-| File | Format | Purpose |
-|---|---|---|
-| `traces.json` | JSON (full-fidelity) | 32 fields per request: context, metadata, headers, timing |
-| `cache_trace.csv` | CSV | Simulator-ready: timestamp, cache_key, object_size, session_id, agent_type |
-| `access_log.jsonl` | JSONL | Log-format export for streaming analysis |
-| `summary.json` | JSON | Per-task aggregate statistics + provenance |
-
-### Canonical stitched cache-replay CSVs (`data/traces/`)
-
-| File | Rows | Scope |
-|---|---|---|
-| `full_400_sessions.csv` | 82,455 | All scripted sessions across 4 regions (cacheable filter: GET, status 200, non-zero body) |
-| `llm_full_901.csv` | 357,782 | All LLM sessions across 6 models × 4 regions (same cacheable filter) |
-
-Both are built from the per-task `cache_trace.csv` files via `paper/regenerate_full_snapshot.py`.
-
-## Provenance
-
-- **Collection substrate:** BrowserUse v0.2 driving Chromium via Chrome DevTools Protocol (CDP). Playwright in Docker for GCP regions; native macOS for Zurich workstation.
-- **Collection period:** 2026-02 through 2026-04.
-- **PRNG seed:** `BENCH_SEED=42` (fixed for scripted-random).
-- **Target policy:** Only publicly accessible pages. No authentication, no form submission, no payment, no login flows. Robots.txt respected per domain.
-
-## Sanitization (applied to every released file)
-
-Sanitization tool: [`tools/sanitize_release.py`](tools/sanitize_release.py). Idempotent. Run before every release.
-
-| Scrub | Where |
+| File type | Purpose |
 |---|---|
-| Strip `Authorization`, `Cookie`, `Set-Cookie`, `Proxy-Authorization` headers | `traces.json`, `access_log.jsonl` (response_headers + request_headers) |
-| Redact URL query parameter values to `_REDACTED_` (names preserved) | `traces.json`, `access_log.jsonl` |
-| Replace project-brand User-Agent strings with `BrowseTrace/1.0 (benchmark)` | all files |
-| Brand-string scrub (recursive) for any residual mentions | all files |
-| Preserve URL uniqueness in cache-replay CSVs (brand scrub only, no query redaction) | `cache_trace.csv`, `full_400_sessions.csv`, `llm_full_901.csv` |
+| `traces.json` | Full request context, response metadata, headers and timing |
+| `access_log.jsonl` | Request log export |
+| `cache_trace.csv` | Simulator projection |
+| `summary.json` | Collection summaries and provenance where bundled |
 
-## Ethics
+See [schema/trace_schema.py](schema/trace_schema.py). Replay columns are `timestamp_us`, `cache_key`, `object_size_bytes`, `session_id`, `agent_type`.
 
-All sessions target publicly accessible web pages. No authentication or form submission. Rate-limited (< 2,000 requests per task per region). `robots.txt` reviewed per target; disallowed paths avoided or minimally sampled.
+## Sanitization and reuse
 
-**Human subjects:** A single qualitative self-study session was collected by one researcher across all 10 tasks (N=1), used purely as a directional reference point in the appendix. Under local institutional policy, self-study sessions with no external participants fall outside human-subjects review requirements.
+[tools/sanitize_release.py](tools/sanitize_release.py) implements removal of `Authorization`, `Cookie`, `Set-Cookie` and `Proxy-Authorization` headers, query-value redaction in full traces and access logs, and project-brand scrubbing.
 
-**PII:** The release contains request-level metadata and response sizes only. No response bodies. No personally identifiable information. Cookies and Authorization headers are stripped.
+The historical replay CSVs preserve full URL key uniqueness and are not query-redacted like the full trace exports. Do not assume a sanitization rule for one format applies to all formats. The new replay results and charts contain aggregate statistics and file hashes only, with no request URLs.
 
-## Known limitations
+Collection should use public pages with appropriate access and rate limits. The release is not evidence of an institutional ethics determination or permission to collect arbitrary websites. No new collection was performed for this update.
 
-- **Scripted-random is a stress-test driver**, not a proxy for human behavior. It is a reproducible, credential-free baseline against which agent traffic can be contrasted.
-- **Substrate heterogeneity:** Zurich uses BrowserUse on macOS; cloud uses Playwright on Linux in Docker. The paper's geographic analysis restricts cross-region claims to the three cloud regions (substrate held constant).
-- **10 task families** is intentionally narrow for manageable execution time. Future releases will broaden coverage.
-- **HTTP/2 multiplexing and HTTP/3 effects** are recorded but not yet analyzed.
-- **Bot detection:** Fewer than 1% of sessions encountered anti-bot blocking; flagged in per-session `navigation_status`.
-- **Single collection period** (Feb–Apr 2026); longitudinal repeated collection is planned future work.
+## Evaluation protocol
 
-## Reference implementation
+[tools/replay_public.py](tools/replay_public.py) runs libCacheSim 0.3.3.post4, cold cache per policy and size, in stored CSV row order. It evaluates LRU, LFU, ARC, S3-FIFO, W-TinyLFU and GDSF at 1, 5, 10, 25 and 50 MiB. Request hit ratio is one minus request miss ratio; byte hit ratio is one minus byte miss ratio.
 
-All cache-policy numbers in the paper are derived under [libCacheSim](https://github.com/1a1a11a/libCacheSim) v0.3.3+, a widely-used C reference cache simulator with Python bindings. Cross-project reproducibility: see `verify_submission_gate.py`, which runs libCacheSim on the canonical CSVs and checks against paper-reported numbers.
+This is an object-cache simulation. It does not enforce origin HTTP cache-control, freshness, `Vary` or authorization, and does not measure live network latency. Differences between policies are descriptive for these two aggregate sequences. There are no independent randomized trials or confidence intervals in this replay.
 
-Policies evaluated: LRU, LFU, ARC, S3-FIFO, W-TinyLFU, GDSF (Greedy-Dual-Size-Frequency). Cache sizes: 1, 5, 10, 25, 50 MiB.
+See [README.md](README.md) for reproduction commands and the request-hit/byte-hit tradeoff. Plotting the committed results requires Matplotlib; recomputing the replay requires libCacheSim.
 
-## How to cite
+## Citation and contact
 
-If you use BrowseTrace in your research, please cite the IMC 2026 paper:
-
-```bibtex
-@inproceedings{browsetrace2026,
-  title     = {{BrowseTrace}: Request-Level Traffic Characterization of Browser-Mediated AI Agents},
-  author    = {Anonymous Authors},
-  year      = {2026},
-  booktitle = {Proceedings of the ACM Internet Measurement Conference (IMC)},
-  location  = {Karlsruhe, Germany},
-  note      = {Author metadata withheld for double-blind review},
-  url       = {https://anonymous.4open.science/r/BrowseTrace},
-}
-```
-
-## Contact
-
-Contact via the anonymous artifact mirror: https://anonymous.4open.science/r/BrowseTrace
-Author email will be published after the double-blind review period concludes.
+Use [CITATION.cff](CITATION.cff) to cite the artifact. Please report issues via [GitHub](https://github.com/landigf/BrowseTrace/issues). Historical manuscript citation fields should not be used to imply conference acceptance.

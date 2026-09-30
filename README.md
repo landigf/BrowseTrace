@@ -1,190 +1,81 @@
 # BrowseTrace
 
-[![License: Apache 2.0](https://img.shields.io/badge/Code-Apache%202.0-green)](LICENSE)
-[![License: CC BY 4.0](https://img.shields.io/badge/Data-CC%20BY%204.0-orange)](LICENSE-DATA)
-[![Paper](https://img.shields.io/badge/Paper-IMC%202026-blue)](paper/BrowseTrace.pdf)
+[![Code: Apache 2.0](https://img.shields.io/badge/Code-Apache%202.0-green)](LICENSE)
+[![Data: CC BY 4.0](https://img.shields.io/badge/Data-CC%20BY%204.0-orange)](LICENSE-DATA)
 
-**A reproducible benchmark for browser-mediated AI agent web workloads.**
+**Request-level traces and reproducible cache experiments for browser-mediated AI traffic.**
 
-BrowseTrace is the first public HTTP-request-level benchmark of browser-mediated AI-agent traffic. Unlike agent benchmarks that measure *what* agents accomplish, BrowseTrace captures *how* they interact with web infrastructure, enabling cache, CDN, and admission policy research on realistic agentic workloads.
+BrowseTrace records how browser workloads interact with web infrastructure: requests, object sizes, timing and cache keys. It includes collection code, typed schemas, sanitization tools and released traces for offline experiments.
 
-> **Paper:** Anonymous Authors (2026). *BrowseTrace: Request-Level Traffic Characterization of Browser-Mediated AI Agents.* ACM Internet Measurement Conference (IMC 2026), Karlsruhe, Germany. Author metadata withheld for double-blind review.
+[Project & results](https://landigf.github.io/browsetrace.html) · [Dataset card](DATASET_CARD.md) · [Replay results](reports/public-cache-replay.json) · [Historical manuscript](paper/BrowseTrace.pdf)
 
-## Headline results
+**Status:** research artifact, not an accepted conference publication. The manuscript is retained as a historical research draft. Earlier IMC badges, proceedings citations and anonymous-author metadata were submission-era material, not evidence of acceptance.
 
-| Metric | Value |
-|---|---|
-| Total sessions | **1,301** |
-| Scripted-random sessions | 400 (across 4 regions) |
-| LLM-driven sessions | 901 (across 6 models, 5 providers) |
-| Scripted cache-replay requests | 82,455 |
-| LLM cache-replay requests | 357,782 |
-| LLM request amplification vs scripted | **2–5×** (per-task 1–26×) |
-| Rendering overhead | **69% of bytes** are scripts + stylesheets; 2.9% is HTML |
+## Results: cache replay
 
-### Cache-policy findings at 5 MiB (libCacheSim, reference implementation)
+![Request and byte hit rates for LRU and GDSF at 5 MiB](assets/cache-replay.svg)
 
-| Trace | LRU | GDSF | GDSF advantage |
-|---|---|---|---|
-| Scripted | 37.4% | **59.5%** | +22 pp |
-| LLM-driven | 43.5% | **76.2%** | +33 pp (amplified on agent traffic) |
+The September 2026 replay uses the public CSVs and libCacheSim 0.3.3.post4. Each policy starts with an empty cache and reads the stored row order. The complete sweep covers six policies at five cache sizes on each of the two aggregate traces.
 
-Full Table 5 (all 6 policies × 5 cache sizes) reproduces from `data/traces/full_400_sessions.csv` and `data/traces/llm_full_901.csv` under libCacheSim in seconds.
+| Trace | Metric at 5 MiB | LRU | GDSF | GDSF − LRU |
+|---|---|---:|---:|---:|
+| Scripted control | Request hit rate | 37.4% | 59.5% | +22.1 pp |
+| Scripted control | Byte hit rate | 24.9% | 15.8% | −9.1 pp |
+| LLM-labelled | Request hit rate | 43.5% | 76.2% | +32.7 pp |
+| LLM-labelled | Byte hit rate | 20.2% | 24.7% | +4.5 pp |
 
-## Six LLMs, five providers
+**The tradeoff matters:** GDSF improves request hit rate on both released traces, but loses byte hit rate on the scripted control. This is an offline object-cache comparison, not a measured network speedup. The simulator does not enforce HTTP cache-control, freshness, `Vary` or authorization rules. Scripted traffic is not a human baseline.
 
-| Provider | Model | Sessions |
-|---|---|---|
-| OpenAI | GPT-4.1-mini | 350 |
-| Google | Gemini 2.5 Flash | 150 |
-| Google | Gemini 2.5 Pro | 150 |
-| Anthropic | Claude Haiku 4.5 | 100 |
-| DeepSeek | DeepSeek-V3.2 (agent-trained) | 90 |
-| Alibaba | Qwen 2.5-Coder 7B (open-weight) | 61 |
+All values, input hashes and environment details are in [the machine-readable result](reports/public-cache-replay.json). [The plotting script](tools/plot_public_replay.py) produces SVG, PNG and PDF versions.
 
-## Four regions (multi-region cache replay)
+## What the public release can verify
 
-| Region | Vantage point |
-|---|---|
-| Zurich (workstation) | BrowserUse on macOS |
-| US Central | Google Cloud, `us-central1` (Iowa) |
-| Europe West | Google Cloud, `europe-west1` (Belgium) |
-| Asia Southeast | Google Cloud, `asia-southeast1` (Singapore) |
+| Replay input | Request rows | Distinct nonempty session labels |
+|---|---:|---:|
+| `data/traces/full_400_sessions.csv` | 82,455 | 400 |
+| `data/traces/llm_full_901.csv` | 357,782 | 100 |
 
-## Quick start
+The legacy `901` filename is preserved so existing scripts still work. **It is not a verified count of independent sessions in the CSV.** Raw LLM session bundles are not included in this public snapshot, so the broader collection inventory, per-model session totals and amplification claims cannot be independently reconstructed from these files. Distinct labels are also not proof of unique collection sessions.
+
+Previous headline totals of 1,301 sessions and 2–5× amplification have been removed from this README because they require evidence beyond this replay. The collector's task/model configuration is available for inspection; it should not be confused with measurements of a complete released corpus.
+
+## Reproduce
+
+The replay makes no model API calls and does not browse the web.
 
 ```bash
-curl -L -o BrowseTrace.zip https://anonymous.4open.science/api/repo/BrowseTrace/zip
-unzip BrowseTrace.zip -d BrowseTrace
+git clone https://github.com/landigf/BrowseTrace.git
 cd BrowseTrace
-pip install -r requirements.txt
-
-# Reproduce headline cache-policy numbers in <60 seconds
-python -c "
-from libcachesim import TraceReader, ReaderInitParam, TraceType, LRU, GDSF
-p = ReaderInitParam(has_header=True, has_header_set=True, delimiter=',',
-                    obj_id_is_num=False, obj_id_is_num_set=True)
-p.time_field, p.obj_id_field, p.obj_size_field = 1, 2, 3
-for label, path in [
-    ('scripted', 'data/traces/full_400_sessions.csv'),
-    ('llm',      'data/traces/llm_full_901.csv'),
-]:
-    for cls, name in [(LRU, 'LRU'), (GDSF, 'GDSF')]:
-        r = TraceReader(path, trace_type=TraceType.CSV_TRACE, reader_init_params=p)
-        mr, _ = cls(5*1024*1024).process_trace(r)
-        print(f'{label:9s} {name:5s} @5MiB: {(1-mr)*100:.1f}%')
-"
-# Expected:
-#   scripted LRU  @5MiB: 37.4%
-#   scripted GDSF @5MiB: 59.5%
-#   llm      LRU  @5MiB: 43.5%
-#   llm      GDSF @5MiB: 76.2%
+python3 -m venv .venv
+. .venv/bin/activate
+pip install libcachesim==0.3.3.post4 matplotlib
+python tools/replay_public.py
+python tools/plot_public_replay.py
 ```
 
-## Release manifest: `release-v3`
+Reference replay environment: Python 3.12.2, macOS arm64. Python/package support varies by platform. Plotting the committed JSON needs only Matplotlib; replay requires libCacheSim.
 
-The `release-v3` manifest pins four components:
+The full sweep covers LRU, LFU, ARC, S3-FIFO, W-TinyLFU and GDSF at 1, 5, 10, 25 and 50 MiB. The historical [submission gate](verify_submission_gate.py) checks the old manuscript's cache tables; it does not certify the missing collection provenance.
 
-1. **Scripted subtree** (`data/release-v3/`) — Zurich scripted-random collection with per-task `traces.json`, `access_log.jsonl`, `cache_trace.csv`, `summary.json`.
-2. **Multi-region scripted extension** (`data/release-v3-geo/`) — scripted-random sessions from `us-central1`, `europe-west1`, `asia-southeast1`.
-3. **LLM-driven bundles** — per-model, per-region session directories spanning all six LLMs. See [`DATASET_CARD.md`](DATASET_CARD.md) for full layout.
-4. **Canonical stitched cache-replay CSVs** (`data/traces/`) — the inputs every paper-level cache claim is replayed from:
-   - `full_400_sessions.csv` (82,455 rows, scripted)
-   - `llm_full_901.csv` (357,782 rows, LLM across 6 models × 4 regions)
+## Collection and schema
 
-The paper compiles every cache-policy number from those two CSVs under libCacheSim. A self-check (`verify_submission_gate.py`) confirms this on every build.
+- [Collector](collection/runner.py) and [task definitions](collection/tasks.yaml): browser execution and request capture.
+- [Typed trace schema](schema/trace_schema.py): request context, response metadata, timing and headers.
+- [Sanitizer](tools/sanitize_release.py): removes sensitive headers and redacts query values in full trace/log exports.
+- [Dataset card](DATASET_CARD.md): release scope, collection background and known limitations.
 
-## Trace schema
+The cache-replay CSV is a projection with `timestamp_us`, `cache_key`, `object_size_bytes`, `session_id` and `agent_type`. The existing released cache keys preserve URL uniqueness; query redaction in the full trace exports does not imply redaction of the replay CSVs.
 
-Each `traces.json` record (full-fidelity) contains 32 fields organized into four groups: request context (timestamp, URL, method, initiator, resource type, session/task IDs), response metadata (status, content-type, encoded size, protocol, connection reuse), HTTP headers (with `Authorization`/`Cookie`/`Set-Cookie`/`Proxy-Authorization` stripped per the sanitization policy), and timing (DNS, TLS, TCP, TTFB, transfer in ms).
-
-Cache-replay CSV (`cache_trace.csv`) is the simulator-ready projection: `timestamp_us, cache_key, object_size_bytes, session_id, agent_type`.
-
-See [`schema/trace_schema.py`](schema/trace_schema.py) for the canonical schema.
-
-## Sanitization policy
-
-All released data has been scrubbed before publication:
-
-- **Headers stripped** from every request/response: `Authorization`, `Cookie`, `Set-Cookie`, `Proxy-Authorization`.
-- **URL query values redacted** to `_REDACTED_` in `traces.json` and `access_log.jsonl`; parameter *names* are preserved for analytical fidelity.
-- **User-Agent strings** containing project-brand tokens are replaced with `BrowseTrace/1.0 (benchmark)`.
-- **Cache-replay CSVs** preserve full URL uniqueness (required for correct cache keying) but are brand-scrubbed.
-
-Tool: [`tools/sanitize_release.py`](tools/sanitize_release.py). Idempotent; safe to re-run.
-
-## Reproducibility
-
-See [`REPRODUCIBILITY.md`](REPRODUCIBILITY.md) for the step-by-step guide from a fresh clone:
-
-- OS requirements, Python version, pip dependencies
-- How to reproduce every figure and table in the paper
-- How to re-run the submission gate (`verify_submission_gate.py`)
-- How to extend the benchmark with new tasks or models
-
-## Extending
-
-Add a new task family or a new LLM:
-
-```bash
-# Scripted-random baseline for a new task
-python collection/runner.py --task my-new-task --surface live \
-                            --live-driver scripted-random --repeats 10
-
-# LLM-driven with a specific model
-GEMINI_API_KEY=... python collection/runner.py \
-    --task all --surface live --live-driver agent --repeats 5 \
-    --llm-model gemini-2.5-flash
-```
-
-See [`collection/tasks.yaml`](collection/tasks.yaml) for task definitions and [`collection/runner.py`](collection/runner.py) for the collector.
-
-## Citation
-
-If you use BrowseTrace in your research:
+## Cite the artifact
 
 ```bibtex
-@inproceedings{browsetrace2026,
-  title     = {{BrowseTrace}: Request-Level Traffic Characterization of Browser-Mediated AI Agents},
-  author    = {Anonymous Authors},
-  year      = {2026},
-  booktitle = {Proceedings of the ACM Internet Measurement Conference (IMC)},
-  location  = {Karlsruhe, Germany},
-  note      = {Author metadata withheld for double-blind review},
-  url       = {https://anonymous.4open.science/r/BrowseTrace},
+@misc{landi2026browsetrace,
+  title = {BrowseTrace: Request-Level Traffic Characterization of Browser-Mediated AI Agents},
+  author = {Landi, Gennaro Francesco},
+  year = {2026},
+  howpublished = {Research software and dataset},
+  url = {https://github.com/landigf/BrowseTrace}
 }
 ```
 
-Plain citation: see [`CITATION.cff`](CITATION.cff).
-
-## License
-
-- **Code**: [Apache License 2.0](LICENSE)
-- **Data**: [Creative Commons Attribution 4.0](LICENSE-DATA)
-
-## Project layout
-
-```
-BrowseTrace/
-├── README.md                       — this file
-├── CITATION.cff                    — academic citation metadata
-├── DATASET_CARD.md                 — dataset provenance, ethics, scope
-├── REPRODUCIBILITY.md              — fresh-clone reproduction guide
-├── CHANGELOG.md                    — release history
-├── LICENSE / LICENSE-DATA          — Apache-2.0 (code) / CC-BY-4.0 (data)
-├── requirements.txt                — pinned Python dependencies
-├── data/
-│   ├── release-v3/                 — Zurich scripted subtree
-│   ├── release-v3-geo/             — multi-region scripted
-│   └── traces/                     — canonical stitched CSVs
-│       ├── full_400_sessions.csv
-│       └── llm_full_901.csv
-├── tools/
-│   └── sanitize_release.py         — scrubber (idempotent)
-├── schema/
-│   └── trace_schema.py             — canonical trace schema
-├── collection/                     — BrowserUse runner, tasks.yaml, Dockerfile
-├── analysis/                       — cache simulator + per-section scripts
-├── paper/                          — LaTeX source, figures, PDF
-└── verify_submission_gate.py       — submission / release gate
-```
+See [CITATION.cff](CITATION.cff). Code is [Apache 2.0](LICENSE); released data is [CC BY 4.0](LICENSE-DATA).
